@@ -1,0 +1,120 @@
+﻿app:
+  name: ra-agent
+  host: 0.0.0.0  # 监听所有网卡，外部可访问
+  port: 8000
+  data_dir: ./data  # 本地文件（Chroma 向量库等）统一放这里
+  output_dir: ./output  # 多 agent 产出文件（方案/报告/BibTeX）单独存放，与系统数据分离
+
+database:
+  url: postgresql+psycopg://ra:ra@localhost:5432/ra_agent
+
+redis:
+  url: redis://localhost:6379/0
+
+vector_store:
+  provider: chroma
+  chroma:
+    persist_dir: ./data/chroma
+
+tracing:
+  max_logs: 1000
+
+llm:
+  system_default:
+    provider: deepseek
+    base_url: https://api.deepseek.com/v1
+    model_id: deepseek-chat
+  retry:             # 调用失败退避重试：限流/5xx/网络错误指数退避重试
+    max_retries: 5
+    base_delay: 1.0 # 首次重试等 1s，之后 2s / 4s（含随机抖动）
+  context_window: 256000  # 上下文窗口兜底值(token)：用户未设置且探测不到模型元数据时使用，达到 80% 触发自动压缩
+  providers:                     # 均为 OpenAI 协议兼容端点（custom 自定义除外）
+    openai:      { base_url: https://api.openai.com/v1, listable: true }
+    deepseek:    { base_url: https://api.deepseek.com/v1, listable: true }
+    qwen:        { base_url: https://dashscope.aliyuncs.com/compatible-mode/v1, listable: true }
+    moonshot:    { base_url: https://api.moonshot.cn/v1, listable: true }
+    zhipu:       { base_url: https://open.bigmodel.cn/api/paas/v4, listable: true }
+    siliconflow: { base_url: https://api.siliconflow.cn/v1, listable: true }
+    minimax:     { base_url: https://api.minimax.chat/v1, listable: true }
+    openrouter:  { base_url: https://openrouter.ai/api/v1, listable: true }
+    gemini:      { base_url: https://generativelanguage.googleapis.com/v1beta/openai, listable: true }
+    ollama:      { base_url: http://localhost:11434/v1, listable: true }
+
+retrieval:
+  mode: hybrid  # 对话检索模式：vector（纯向量）| hybrid（向量 + BM25 混合），可在前端切换
+  per_kb_k: 10   # 对话 RAG：每个知识库检索几条（前端可调，1~20）
+  total_k: 15    # 对话 RAG：所有库合并后总共取几条（前端可调，1~50）
+  parent_groups: 5      # 聚合返回：展开的父块数（0=关闭，全返回小 chunk；前端可调）
+  parent_group_size: 5  # 每个父块聚合的相邻 chunk 数
+  parent_max_chars: 8000  # 单个父块拼接文本上限（字符）
+
+embedding:
+  default_provider: local
+  default_model: mini
+  cloud:
+    doubao:
+      base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+      model_id: doubao-embedding-vision
+      dim: 2048
+      rate_limited: true   # 云端限流：批次间保留间隔防 429
+    ollama:
+      base_url: http://100.85.4.71:11434/v1
+      model_id: qwen3-embedding:8b
+      dim: 4096            # 自建端点默认不设批次间隔
+    llama:
+      base_url: http://10.150.10.40:8080/v1
+      model_id: qwen3-embedding:8b
+      dim: 4096            # 自建端点默认不设批次间隔
+  local:
+    default_dim: 384
+
+mcp_servers:
+  research:
+    transport: stdio
+    command: python
+    args: ["servers/research_server.py"]
+
+# 头脑风暴（多 agent 辩论）
+brainstorm:
+  max_rounds: 3                 # 辩论轮数上限（× 角色数 = 发言次数上限）
+  research_tool_loop_max: 10    # 调研阶段单 agent 工具子循环上限
+  debate_tool_rounds: 1         # 辩论阶段前几轮还允许调工具（防无限调研不辩论）
+  token_budget: 20000000        # 单场总 token 预算默认值（硬熔断；前端发起时按场可调）
+  position_max_chars: 500       # 立场书长度上限
+  transcript_window: 8          # 辩论上下文携带的最近发言条数
+  roles:                        # 角色目录（id 固定四选一，name/temperature 可调）
+    - {id: innovator, name: 创新者, temperature: 0.9}
+    - {id: critic, name: 批评者, temperature: 0.4}
+    - {id: methodologist, name: 方法论专家, temperature: 0.3}
+    - {id: practitioner, name: 实践者, temperature: 0.5}
+
+# 格致会讲（学术研讨式多 agent）
+seminar:
+  reading_tool_loop_max: 6      # 研读阶段单学者工具子循环上限
+  notes_max_chars: 600         # 研读笔记长度上限
+  insight_window: 20           # 洞见池注入上下文的条数上限
+  cards_per_scholar: 2         # propose 阶段每人卡片数上限
+  token_budget: 20000000        # 单场总 token 预算默认值（硬熔断；执笔人不受预算阻断）
+  roles:
+    - {id: historian, name: 文献学家, temperature: 0.3}
+    - {id: theorist, name: 理论家, temperature: 0.6}
+    - {id: experimentalist, name: 实验家, temperature: 0.4}
+    - {id: visitor, name: 访问学者, temperature: 0.9}
+
+# 溯源社（深度调研式多 agent）
+deep_research:
+  scout_tool_loop_max: 8        # 初调阶段工具子循环上限
+  min_sections: 3               # 章节数下限（快速模式固定 3）
+  max_sections: 5               # 章节数上限
+  chapter_min_words: 800        # 单章草稿字数下限
+  chapter_max_words: 1500       # 单章草稿字数上限
+  tool_loop_max: 10             # 分章深研工具子循环上限
+  revise_tool_loop_max: 5       # 修订阶段工具子循环上限（低于深研：只补缺口）
+  token_budget: 20000000        # 单场总 token 预算默认值（硬熔断；publish 不受预算阻断）
+  roles:
+    - {id: researcher, name: 课题研究员, temperature: 0.4}
+    - {id: planner, name: 研究编辑, temperature: 0.3}
+    - {id: reviewer, name: 审稿人, temperature: 0.2}
+    - {id: reviser, name: 修订员, temperature: 0.3}
+    - {id: writer, name: 报告撰写人, temperature: 0.4}
+

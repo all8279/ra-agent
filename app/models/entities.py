@@ -1,0 +1,200 @@
+from email.policy import default
+import uuid
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text
+from sqlalchemy.orm import Mapped, mapped_collection, mapped_column, session
+
+from app.models.base import Base, utcnow
+
+def _uuid() -> str:
+    return uuid.uuid4().hex    # 32 位十六进制字符串，作为主键
+
+class User(Base):
+    """用户： 所有资源（KB/会话/记忆/LLM配置）都归属于某个用户。"""
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256))  
+    role: Mapped[str] = mapped_column(String(16), default="user")   # user | admin
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class Conversation(Base):
+    """对话会话登记：跨设备同步会话列表（消息本体在 LangGraph checkpoint）。
+
+    前端会话 id 是浏览器生成的 uuid，此前只存 localStorage——换设备即不可见。
+    每次发消息后登记/刷新本表，列表查询以服务端为准。
+    user_id 不设外键（与 ToolCallLog 一致，避免对历史数据强约束）。
+    """
+    __tablename__ = "conversations"
+    session_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(128), default="新会话")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class KnowledgeBase(Base):
+    """知识库：嵌入配置（provider/model/端点）创建后可随时修改；向量库实际写入模型记在 embedded_model。"""
+    __tablename__ = "kbs"
+
+    kb_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(String(512), default="")  # 知识库介绍（新建必填，LLM 选库参考）
+    scope: Mapped[str] = mapped_column(String(16), default="public")   # public | private
+    owner_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True)              # 私人库属主
+    category_id: Mapped[str] = mapped_column(String(64), default="default")
+    embedding_provider: Mapped[str] = mapped_column(String(32))        # local | doubao | ...
+    embedding_model_id: Mapped[str] = mapped_column(String(64))
+    embedding_dim: Mapped[int] = mapped_column(Integer)
+    embedding_base_url: Mapped[str | None] = mapped_column(
+        String(256), nullable=True)          # 该库自定义嵌入端点，空则用 provider 默认
+    embedding_api_key: Mapped[str | None] = mapped_column(
+        String(512), nullable=True)          # 该库专用嵌入密钥（AES 加密），空则用系统默认
+    embedded_model: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True)                 # 最近一次成功入库使用的嵌入模型标注（见 embedding_mismatch）
+    retrieval_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # 库主全局允许被对话检索
+    retrieval_disabled_users: Mapped[list] = mapped_column(
+        JSON, default=list)                  # 按用户禁用检索的 user_id 列表（互不影响）
+    status: Mapped[str] = mapped_column(String(16), default="indexing")
+    #                       ↑ ready | indexing | reembedding | failed（状态机）
+    # kind：user=普通库 | archive=多 agent 自动沉淀库（辩论式agent纪要/研讨式agent纪要）。
+    # 沉淀库参与多 agent 的研读/调研与知识库检索工具，但不进入普通对话的检索目录。
+    kind: Mapped[str] = mapped_column(String(16), default="user")
+    source_doc_ids: Mapped[list] = mapped_column(JSON, default=list)   # 原文档引用
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class UserLLMConfig(Base):
+    """用户自定义 LLM 配置。"""
+    __tablename__ = "user_llm_config"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(32))                  # openai/qwen/...
+    api_key: Mapped[str] = mapped_column(String(512))                  # AES-256 加密后
+    base_url: Mapped[str] = mapped_column(String(256))
+    model_id: Mapped[str] = mapped_column(String(64))
+    context_window: Mapped[int | None] = mapped_column(
+        Integer, nullable=True)             # 用户显式指定的上下文窗口（token），空=自动探测/兜底
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class ToolCallLog(Base):
+    """调用追踪：记录 LLM/工具/检索每次调用，parent 成树。"""
+    __tablename__ = "tool_call_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(16))       # llm | tool | retrieve | kb
+    name: Mapped[str] = mapped_column(String(64))
+    # 64：头脑风暴会话 id 是 "bs-" + uuid（39 字符），36 会截断报
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    args: Mapped[dict] = mapped_column(JSON, default=dict)
+    output: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class LLMUsage(Base):
+    """Token 用量计量：generate_node 每轮真实用量 best-effort 落库。
+
+    数据供 /usage/summary 成本报表与后续按用户配额演进使用；
+    user_id 不设外键（与 ToolCallLog/Conversation 一致，避免历史数据强约束）。
+    """
+    __tablename__ = "llm_usage"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    # 64：与 tool_call_log.session_id 同步放宽（头脑风暴会话 id 39 字符）
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)   # 缓存命中 ⊆ input
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserEmbeddingConfig(Base):
+    """用户级嵌入模型默认配置（每用户一条，user_id 即主键）。
+
+    建库未显式指定嵌入模型时优先于系统默认（resolve_embedding_meta），
+    建库即固化进 KB 的 embedding_* 列——修改本配置不影响存量库（维度安全）。
+    api_key AES-256 加密落库（同 UserLLMConfig 纪律）。
+    """
+    __tablename__ = "user_embedding_config"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32))                  # cloud 名 | local | 任意自建端点名
+    model_id: Mapped[str] = mapped_column(String(128))
+    dim: Mapped[int] = mapped_column(Integer)
+    base_url: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    api_key: Mapped[str | None] = mapped_column(String(512), nullable=True)   # 加密
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+
+
+class Feedback(Base):
+    """用户反馈：点赞/点踩一条回答（P3-19 反馈闭环）。
+
+    定位是**评测集的种子数据**：rating=1 的记录经 rag_test/build_golden_from_feedback.py
+    半自动整理成检索金标准，让评测集随真实使用增长。
+    hits 冗余存回答时引用面板的来源元数据（kb/scope/source/page/分数），
+    使每条 feedback 自成一条可回放的评测记录——不依赖 checkpoint 还在、
+    也不依赖前端 localStorage 存活。question/answer 落库前服务端截断，
+    防超大 payload。
+    """
+    __tablename__ = "feedbacks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    rating: Mapped[int] = mapped_column(SmallInteger)   # 1 赞 / -1 踩
+    question: Mapped[str] = mapped_column(Text, default="")
+    answer: Mapped[str] = mapped_column(Text, default="")
+    hits: Mapped[list] = mapped_column(JSON, default=list)
+    comment: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Memory(Base):
+    """长记忆：用户级命名空间，跨会话读取。
+
+    分层（膨胀控制）：tier=core 常驻并注入每轮 prompt；tier=short 临时性
+    事实，不注入且 TTL 过期自动清除。topic 供主题压缩分组，last_used_at
+    供 LRU 淘汰（注入即使用，见 load_memory_node）。
+    """
+    __tablename__ = "memories"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    key: Mapped[str] = mapped_column(String(64))         # 记忆条目名，如 research_topic
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    tier: Mapped[str] = mapped_column(String(8), default="core")     # core | short
+    topic: Mapped[str] = mapped_column(String(64), default="")       # 主题（压缩分组用）
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 onupdate=utcnow)
+
+
+class BrainstormSession(Base):
+    """头脑风暴会话登记：列表页元数据 + 成稿。
+
+    过程数据（立场书/辩论记录/证据池）不在此表——都在 LangGraph checkpoint
+    （与主链路"conversations 表 + checkpoint 存消息"同构）。
+    status 状态机：running | done | stopped | failed；启动自愈同 kbs 模式
+    （进程中断残留 running → 启动时复位 failed）。
+    """
+    __tablename__ = "brainstorm_sessions"
+
+    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    topic: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    team: Mapped[str] = mapped_column(String(16), default="debate")   # debate=争鸣社 | seminar=会讲
+    roles: Mapped[list] = mapped_column(JSON, default=list)   # 本场角色快照
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)    # turns/tokens 等
+    final_proposal: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow,
+                                                 onupdate=utcnow)
