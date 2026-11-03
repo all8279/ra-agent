@@ -63,11 +63,11 @@ def test_custom_openai_compatible_provider():
     ks = _make_ks()
     kb = ks.create_kb("llama库", "public", None,
                       provider="llama", model_id="nomic-embed-text-v1.5",
-                      dim=768, base_url="http://100.85.4.71:9999/v1")
+                      dim=768, base_url="http://localhost:9999/v1")
     assert kb.embedding_provider == "llama"
     assert kb.embedding_model_id == "nomic-embed-text-v1.5"
     assert kb.embedding_dim == 768
-    assert kb.embedding_base_url == "http://100.85.4.71:9999/v1"
+    assert kb.embedding_base_url == "http://localhost:9999/v1"
     assert kb.status == "ready"
 
 
@@ -75,7 +75,7 @@ def test_self_hosted_provider_needs_no_api_key():
     """自建端点免鉴权：未配置 provider 无 key 也能构建（不再抛 missing api_key）。"""
     from app.abstractions.embedding import EmbeddingFactory
     meta = EmbeddingMeta("llama", "nomic-embed-text-v1.5", 768,
-                         "http://100.85.4.71:9999/v1")
+                         "http://localhost:9999/v1")
     model = EmbeddingFactory.build(meta, {})
     assert model.meta.provider == "llama"
     # 配置过的云端 provider 无 key 仍要 fail fast（secrets 字典含该 provider 键）

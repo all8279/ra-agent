@@ -2424,9 +2424,8 @@ async function stopGeneration() {
 }
 
 /* ---------------- P3-19 反馈闭环：点赞/点踩一条回答 ----------------
-   rating=1 的记录会经 rag_test/build_golden_from_feedback.py 整理成
-   检索金标准候选——用户的每次点赞都在帮评测集长大。hits 取该条消息
-   引用面板的来源元数据，使每条反馈自成可回放的评测记录。 */
+   rating=1 的记录可整理成检索金标准候选——用户的每次点赞都在帮评测集长大。
+   hits 取该条消息引用面板的来源元数据，使每条反馈自成可回放的评测记录。 */
 function nn(v) { return (v === undefined || v === "") ? null : v; }
 
 async function sendFeedback(i, rating) {
@@ -2608,8 +2607,8 @@ function handleChatEvent(ev, asst, stepByTrace) {
 /* ================= 知识库 ================= */
 const EMBED_OPTIONS = [
   { provider: "modelscope", label: "modelscope qwen3-embedding:8b（dim 4096 · 魔搭社区云端服务，需api key）", model: "Qwen/Qwen3-Embedding-8B", dim: 4096, base: "https://api-inference.modelscope.cn/v1" },
-  { provider: "ollama", label: "Ollama qwen3-embedding:8b（dim 4096 · 本地服务）", model: "qwen3-embedding:8b", dim: 4096, base: "http://100.85.4.71:11434/v1" },
-  { provider: "ollama", label: "Ollama qwen3-embedding:0.6b（dim 4096 · 本地服务）", model: "qwen3-embedding:0.6b", dim: 4096, base: "http://100.85.4.71:11434/v1" },
+  { provider: "ollama", label: "Ollama qwen3-embedding:8b（dim 4096 · 本地服务）", model: "qwen3-embedding:8b", dim: 4096, base: "http://localhost:11434/v1" },
+  { provider: "ollama", label: "Ollama qwen3-embedding:0.6b（dim 4096 · 本地服务）", model: "qwen3-embedding:0.6b", dim: 4096, base: "http://localhost:11434/v1" },
   { provider: "siliconflow", label: "siliconflow qwen3-embedding:8b（dim 4096 · 硅基流动云端服务，需api key）", model: "Qwen/Qwen3-Embedding-8B", dim: 4096, base: "https://api.siliconflow.cn/v1/embeddings" },
   { provider: "local", label: "本地轻量模型 mini（dim 384 · 离线）", model: "mini", dim: 384, base: "" },
   { provider: "__custom__", label: "自定义…", model: "", dim: 0, base: "" },

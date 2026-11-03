@@ -789,8 +789,7 @@ class KBService:
 
         if mode == "hybrid":
             # 每腿取 max(k, 15)：候选池略深于输出 k，避免一路深位（第 9~15 名）
-            # 的好命中在 RRF 融合时被另一路浅位挤出（26 查询网格实验最优值，
-            # 见 rag_test/hparam_eval_report_v4.md）
+            # 的好命中在 RRF 融合时被另一路浅位挤出（网格实验最优值）
             vec_hits = self._vector_store(kb).search(
                 query, k=max(k, 15), scope=kb.scope, user_id=user_id)
             bm_hits = self._bm25_index(kb).search(query, k=max(k, 15))

@@ -62,8 +62,7 @@ class Bm25Index:
             for t in toks:
                 self._doc_freq[t] = self._doc_freq.get(t, 0) + 1
         # b=0.45（默认 0.75）：本项目 chunk 定长切分（~1000 字符），长度高度均一，
-        # 强长度归一化反而扭曲打分；经 26 查询网格实验该值最优（见 rag_test/
-        # hparam_eval_report_v4.md）
+        # 强长度归一化反而扭曲打分；经多轮网格实验该值在定长分块下最优。
         self._bm25 = BM25Okapi(tokenized, k1=1.5, b=0.45) if chunks else None
 
     def search(self, query: str, k: int = 5) -> list[dict]:
