@@ -7,7 +7,7 @@
 
 FastAPI · LangGraph · ChromaDB · PostgreSQL · BM25 · MCP
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-0.140-009688)](https://fastapi.tiangolo.com/) [![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)](https://langchain-ai.github.io/langgraph/) [![Tests](https://img.shields.io/badge/tests-260%20cases-brightgreen)](#运行测试) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/) [![FastAPI](https://img.shields.io/badge/FastAPI-0.140-009688)](https://fastapi.tiangolo.com/) [![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)](https://langchain-ai.github.io/langgraph/) [![Tests](https://img.shields.io/badge/tests-278%20cases-brightgreen)](#运行测试) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
@@ -167,7 +167,7 @@ ra-agent/
 ├── config/settings.yaml     # 行为参数配置（主题式嵌套）
 ├── servers/research_server.py   # 示例 MCP Server（联网搜索/学术检索/网页阅读）
 ├── alembic/                 # 数据库迁移
-├── tests/                   # pytest 全量测试（30 个文件、260 个用例）
+├── tests/                   # pytest 全量测试（32 个文件、278 个用例）
 ├── ra-web/index.html        # 单页前端（服务同源托管）：对话/知识库/双团队多 Agent/记忆/追踪
 ├── docker-compose.yml       # 基础设施：Postgres 16 + Redis 7
 ├── Dockerfile               # 应用镜像（python:3.10-slim）

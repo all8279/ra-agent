@@ -13,6 +13,6 @@ docs/
 rag_test/
 docker-compose.api.yml
 output/
-# 面试准备与个人记录（不入库）
+# 本地临时记录（不入库）
 面试题与答案.md
 RA-Agent实测数据.md
